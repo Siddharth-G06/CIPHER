@@ -13,7 +13,7 @@
 | Graph Features | Time-windowed bipartite graph | ✅ |
 | Ensemble Model | LightGBM + Isolation Forest | ✅ |
 | Drift Detection | ADWIN + PSI + Observer Pattern | ✅ |
-| Explainability | TreeSHAP + waterfall plots | 🔄 |
+| Explainability | TreeSHAP + waterfall plots | ✅ |
 | ... | ... | ⏳ |
 
 ## Setup
