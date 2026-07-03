@@ -1,0 +1,30 @@
+# Data — never commit raw CSVs (too large, potentially sensitive)
+data/
+*.csv
+
+# Trained models — large binary files
+models/
+*.pkl
+
+# MLflow artifacts — regeneratable
+mlruns/
+
+# Plots — regeneratable
+plots/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environment
+.env
+venv/
+*.egg-info/
+
+# Logs
+logs/
+*.log
+
+# Jupyter checkpoints
+.ipynb_checkpoints/

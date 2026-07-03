@@ -1,0 +1,84 @@
+# CIPHER Fraud Detection — Master Configuration
+# -----------------------------------------------
+# All magic numbers from data_preprocessing.py and graph_features.py are
+# centralised here.  Changing a value here propagates to every module
+# automatically — no hunting through source files required.
+
+data:
+  transaction_path: data/train_transaction.csv
+  identity_path:    data/train_identity.csv
+
+preprocessing:
+  missing_threshold:    0.90   # drop columns whose null rate exceeds this
+  train_frac:           0.80   # temporal split: first 80 % → train
+  sentinel_fill_value: -999    # fill value for remaining nulls (LightGBM-safe sentinel)
+  unseen_label_value:   -1     # integer assigned to out-of-vocabulary categories in test
+
+graph_features:
+  short_window_seconds:  3600  # 1-hour sliding window  (card_degree, merchant_degree)
+  long_window_seconds:  86400  # 24-hour sliding window (tx_count, total_amt, zscore, pair)
+  graph_sample_size:     1000  # rows used for the NetworkX visualisation graph only
+
+# Reserved — not yet wired into feature engineering logic.
+# Intended for a future correlation-based feature selection step.
+feature_selection:
+  correlation_threshold: 0.95
+
+# ---------------------------------------------------------------------------
+# ML Layer — Model Hyperparameters
+# ---------------------------------------------------------------------------
+model:
+  lgbm:
+    n_estimators: 500
+    learning_rate: 0.05
+    num_leaves: 63
+    max_depth: -1
+    subsample: 0.8
+    colsample_bytree: 0.8
+    min_child_samples: 100
+    reg_alpha: 0.1
+    reg_lambda: 0.1
+    # scale_pos_weight is auto-computed from y_train (neg/pos ratio) at runtime
+
+  isolation_forest:
+    n_estimators: 200
+    max_samples: auto
+    contamination: 0.035
+    random_state: 42
+
+  ensemble:
+    lgbm_weight: 0.7
+    iso_weight: 0.3
+    threshold: 0.5
+
+  artifacts:
+    local_model_path: models/cipher_ensemble.pkl
+
+# ---------------------------------------------------------------------------
+# MLflow — Experiment Tracking & Model Registry
+# ---------------------------------------------------------------------------
+mlflow:
+  experiment_name: cipher-fraud-detection
+  tracking_uri: ./mlruns
+  model_registry_name: CIPHERFraudDetector
+
+# ---------------------------------------------------------------------------
+# Drift Detection Layer
+# ---------------------------------------------------------------------------
+drift:
+  adwin_delta: 0.002                       # ADWIN sensitivity — smaller = less sensitive
+  rolling_error_buffer_size: 1000          # max errors kept in rolling buffer
+  psi_current_window_size: 5000            # rows in current PSI comparison window
+  psi_bins: 10                             # equal-width bins for PSI computation
+  psi_warning_threshold: 0.1              # PSI ≥ this → warning (not yet notifying)
+  psi_critical_threshold: 0.2             # PSI ≥ this → notify observers immediately
+  retraining_trigger_path: logs/drift_events.json
+  detector_state_path: models/drift_detector_state.pkl
+  monitored_features:
+    - card_degree_1h
+    - merchant_degree_1h
+    - card_tx_count_24h
+    - amt_zscore_24h
+  drift_simulation:
+    injection_point: 0.7
+    drift_type: high_value

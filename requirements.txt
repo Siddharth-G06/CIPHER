@@ -1,0 +1,34 @@
+# CIPHER — Fraud Detection Pipeline
+# Python >= 3.10 required (uses `dict | None` union syntax)
+
+# Core data science
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+
+# Graph construction (visualisation only in graph_features)
+networkx>=3.1
+
+# Schema validation
+pydantic>=2.0.0
+
+# Config loading
+PyYAML>=6.0
+
+# Online / streaming algorithms (ADWIN drift detection)
+river>=0.21.0
+
+# ML models
+lightgbm>=4.0.0
+
+# Experiment tracking & model registry
+mlflow>=2.10.0
+
+# Plotting (MLflow artifacts)
+matplotlib>=3.7.0
+
+# Model serialisation
+joblib>=1.3.0
+
+# Testing
+pytest>=7.4.0
