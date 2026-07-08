@@ -28,3 +28,6 @@ logs/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
+
+# Generated PDF reports
+reports/

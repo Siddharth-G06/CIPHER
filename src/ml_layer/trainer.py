@@ -43,8 +43,10 @@ import matplotlib.pyplot as plt
 import mlflow
 import mlflow.sklearn
 import numpy as np
+import pandas as pd
 from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 
+from src.ml_layer.explainer import GlobalExplainabilityReporter, SHAPExplainer
 from src.ml_layer.model import EnsembleDetector
 from src.utils.config_loader import load_config
 from src.utils.logger import get_logger
@@ -377,6 +379,58 @@ def train_and_log(
         _logger.info(
             "Local ensemble copy saved to '%s'", local_path
         )
+
+        # ---- 10. Save LightGBM sub-model + SHAP global report --------
+        # Save the LightGBM sub-model separately so SHAPExplainer can
+        # load it without deserialising the full ensemble.
+        lgbm_path: str = cfg.get("explainer", {}).get(
+            "lgbm_model_path", "models/lgbm_model.pkl"
+        )
+        from pathlib import Path as _Path
+        _Path(lgbm_path).parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(ensemble.lgbm_.model_, lgbm_path)
+        _logger.info("LightGBM sub-model saved to '%s'", lgbm_path)
+
+        try:
+            _logger.info(
+                "Initialising SHAPExplainer for global report "
+                "(X_test sample, %d rows)",
+                min(len(X_test), 500),
+            )
+            shap_explainer = SHAPExplainer(
+                model_path=lgbm_path,
+                feature_names=feature_names,
+                config_path=config_path,
+            )
+            # Subsample X_test — never X_train — for global SHAP analysis.
+            sample_size = min(
+                len(X_test),
+                int(
+                    cfg.get("explainer", {}).get("global_sample_size", 500)
+                ),
+            )
+            X_test_sample = pd.DataFrame(
+                X_test[:sample_size], columns=feature_names
+            )
+            reporter = GlobalExplainabilityReporter()
+            global_report = reporter.generate_global_report(
+                shap_explainer, X_test_sample
+            )
+            mlflow.log_artifact(
+                global_report["summary_plot"], artifact_path="shap_plots"
+            )
+            mlflow.log_artifact(
+                global_report["importance_csv"], artifact_path="shap_plots"
+            )
+            for dep_path in global_report["dependence_plots"].values():
+                mlflow.log_artifact(dep_path, artifact_path="shap_plots")
+            _logger.info(
+                "MLflow — SHAP global report artifacts logged"
+            )
+        except Exception as shap_exc:  # noqa: BLE001
+            _logger.warning(
+                "SHAP global report failed (non-fatal): %s", shap_exc
+            )
 
     _logger.info("MLflow run %s closed successfully", run_id)
     return ensemble
