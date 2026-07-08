@@ -82,3 +82,43 @@ drift:
   drift_simulation:
     injection_point: 0.7
     drift_type: high_value
+
+# ---------------------------------------------------------------------------
+# Explainability Layer — SHAP
+# ---------------------------------------------------------------------------
+explainer:
+  model_path: models/cipher_ensemble.pkl
+  lgbm_model_path: models/lgbm_model.pkl
+  plots_dir: plots/shap
+  max_cache_size: 10000
+  threadpool_workers: 4
+  top_features_count: 10
+  interaction_top_n: 10
+  global_sample_size: 5000
+
+# ---------------------------------------------------------------------------
+# Serving Layer — PDF Report Generator
+# ---------------------------------------------------------------------------
+report:
+  output_dir: reports/
+  cipher_version: "1.0.0"
+  risk_tiers:
+    low_threshold: 0.3
+    medium_threshold: 0.5
+    high_threshold: 0.75
+  colors:
+    low: "#28a745"
+    medium: "#ffc107"
+    high: "#fd7e14"
+    critical: "#dc3545"
+    header_text: "#ffffff"
+    table_header: "#1a1a2e"
+    row_alt: "#f8f9fa"
+  page:
+    size: A4
+    margin_inches: 0.75
+  shap_image:
+    width_points: 450
+    height_points: 300
+    timeout_seconds: 10
+  threadpool_workers: 2
