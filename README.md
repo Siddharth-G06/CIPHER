@@ -14,8 +14,15 @@
 | Ensemble Model | LightGBM + Isolation Forest | ✅ |
 | Drift Detection | ADWIN + PSI + Observer Pattern | ✅ |
 | Explainability | TreeSHAP + waterfall plots | ✅ |
+| Report Generator | PDF investigation reports with ReportLab | ✅ |
 | ... | ... | ⏳ |
 
+## Sample Output
+Every flagged transaction produces a color-coded PDF investigation report containing:
+- Risk tier classification (LOW / MEDIUM / HIGH / CRITICAL)
+- Ensemble + component risk scores
+- SHAP waterfall plot with plain-English explanation
+- Full audit trail with model version and drift status
 ## Setup
 ## Usage
 ## Dataset
