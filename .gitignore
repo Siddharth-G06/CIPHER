@@ -31,3 +31,10 @@ logs/
 
 # Generated PDF reports
 reports/
+
+# Kafka data volume (if running outside Docker)
+kafka-data/
+kafka_data/
+
+# confluent kafka logs
+*.kafka.log
