@@ -15,6 +15,7 @@
 | Drift Detection | ADWIN + PSI + Observer Pattern | ✅ |
 | Explainability | TreeSHAP + waterfall plots | ✅ |
 | Report Generator | PDF investigation reports with ReportLab | ✅ |
+| Kafka Streaming | Event-driven serving layer with 4 topics + DLQ | ✅ |
 | ... | ... | ⏳ |
 
 ## Sample Output

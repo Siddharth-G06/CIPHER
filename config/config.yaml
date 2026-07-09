@@ -122,3 +122,35 @@ report:
     height_points: 300
     timeout_seconds: 10
   threadpool_workers: 2
+
+# ---------------------------------------------------------------------------
+# Kafka Streaming Layer
+# ---------------------------------------------------------------------------
+kafka:
+  bootstrap_servers: localhost:9092
+  topics:
+    raw: cipher.transactions.raw
+    flagged: cipher.transactions.flagged
+    drift: cipher.drift.events
+    feedback: cipher.feedback.labels
+    dlq: cipher.transactions.dlq
+  producer:
+    acks: all
+    retries: 3
+    linger_ms: 5
+    batch_size: 16384
+    compression_type: snappy
+  consumer:
+    group_id: cipher-fraud-detector
+    auto_offset_reset: earliest
+    max_poll_interval_ms: 300000
+    session_timeout_ms: 45000
+  topic_config:
+    raw_partitions: 3
+    default_partitions: 1
+    raw_retention_ms: 86400000          # 24 hours
+    flagged_retention_ms: 2592000000    # 30 days
+    drift_retention_ms: 7776000000      # 90 days
+  stream:
+    delay_ms: 100
+    log_every_n: 1000
