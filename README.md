@@ -16,6 +16,7 @@
 | Explainability | TreeSHAP + waterfall plots | ✅ |
 | Report Generator | PDF investigation reports with ReportLab | ✅ |
 | Kafka Streaming | Event-driven serving layer with 4 topics + DLQ | ✅ |
+| Feedback & Retraining | Human-in-the-loop + Champion/Challenger retraining | ✅ |
 | ... | ... | ⏳ |
 
 ## Sample Output
