@@ -154,9 +154,6 @@ kafka:
   stream:
     delay_ms: 100
     log_every_n: 1000
-<<<<<<< Updated upstream
-=======
-
 # ---------------------------------------------------------------------------
 # Feedback & Automated Retraining Layer (Module 5)
 # ---------------------------------------------------------------------------
@@ -180,4 +177,3 @@ streamlit:
   autorefresh_interval_ms: 3000
   live_monitor_rows: 100
   review_queue_max_display: 50
->>>>>>> Stashed changes
