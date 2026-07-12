@@ -17,7 +17,7 @@
 | Report Generator | PDF investigation reports with ReportLab | ✅ |
 | Kafka Streaming | Event-driven serving layer with 4 topics + DLQ | ✅ |
 | Feedback & Retraining | Human-in-the-loop + Champion/Challenger retraining | ✅ |
-| ... | ... | ⏳ |
+| Streamlit Dashboard | 5-tab analyst interface with live monitoring | ✅ |
 
 ## Sample Output
 Every flagged transaction produces a color-coded PDF investigation report containing:
