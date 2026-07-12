@@ -154,3 +154,30 @@ kafka:
   stream:
     delay_ms: 100
     log_every_n: 1000
+<<<<<<< Updated upstream
+=======
+
+# ---------------------------------------------------------------------------
+# Feedback & Automated Retraining Layer (Module 5)
+# ---------------------------------------------------------------------------
+feedback:
+  db_path: data/feedback.db
+  retraining_threshold: 100               # unused feedback records needed to trigger retraining
+  scheduled_retraining_days: 7            # days between scheduled retraining runs
+  min_improvement_auc_pr: 0.005           # challenger must beat champion auc_pr by this delta
+  base_data_pickle_path: data/processed/train_featured.pkl
+  model_updated_signal_path: models/model_updated.json
+  trigger_poll_interval_seconds: 300      # how often RetrainingTrigger checks conditions
+  feedback_base_weight_multiplier: 1.0    # sample weight for original base data rows
+
+# ---------------------------------------------------------------------------
+# Streamlit Dashboard (Module 9)
+# ---------------------------------------------------------------------------
+streamlit:
+  page_title: "CIPHER — Fraud Detection"
+  page_icon: "🛡️"
+  layout: wide
+  autorefresh_interval_ms: 3000
+  live_monitor_rows: 100
+  review_queue_max_display: 50
+>>>>>>> Stashed changes
