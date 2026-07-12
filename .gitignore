@@ -47,3 +47,5 @@ models/model_updated.json
 
 # Processed data pickles (large files)
 data/processed/
+# Streamlit cache
+.streamlit/
