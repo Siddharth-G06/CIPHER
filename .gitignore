@@ -38,3 +38,12 @@ kafka_data/
 
 # confluent kafka logs
 *.kafka.log
+
+# SQLite feedback database (runtime artifact)
+data/feedback.db
+
+# Model update signal file
+models/model_updated.json
+
+# Processed data pickles (large files)
+data/processed/
