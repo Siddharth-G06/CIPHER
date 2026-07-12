@@ -1,41 +1,167 @@
 ---
-version: "3.8"
+# ============================================================
+# CIPHER — Fraud Detection System
+# docker-compose.yml (Module 10 — Production-Complete)
+# ============================================================
+#
+# Services:
+#   kafka       — Confluent Kafka 7.5.0 in KRaft mode (no Zookeeper)
+#   mlflow      — MLflow tracking server (python:3.11-slim)
+#   cipher-app  — CIPHER Streamlit dashboard (built from Dockerfile)
+#
+# Usage:
+#   docker-compose up -d          # start all services
+#   docker-compose logs -f        # tail all logs
+#   docker-compose down -v        # stop + remove volumes
+# ============================================================
 
 services:
+
+  # --------------------------------------------------------------------------
+  # Kafka (KRaft mode — no Zookeeper required)
+  # --------------------------------------------------------------------------
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: cipher-kafka
+    hostname: kafka
     ports:
-      - "9092:9092"
+      - "9092:9092"       # external access (host → container)
     environment:
+      # KRaft identity
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+
+      # Listeners:
+      #   PLAINTEXT       → inter-container traffic (kafka:29092)
+      #   PLAINTEXT_HOST  → host access             (localhost:9092)
+      #   CONTROLLER      → KRaft controller quorum (kafka:29093)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: >-
+        CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: >-
+        PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: >-
+        PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Replication (single-node — set all to 1)
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
-    volumes:
-      - kafka_data:/tmp/kraft-combined-logs
-    healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
 
+      # Log / storage
+      KAFKA_LOG_DIRS: /var/kafka-logs
+
+      # Security — topics created explicitly by the CIPHER producer
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+      # Tuning
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_RETENTION_HOURS: 168      # 7 days
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824 # 1 GB
+
+    volumes:
+      - kafka_data:/var/kafka-logs
+    healthcheck:
+      test:
+        - "CMD"
+        - "kafka-topics"
+        - "--bootstrap-server"
+        - "localhost:9092"
+        - "--list"
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: on-failure
+
+  # --------------------------------------------------------------------------
+  # MLflow Tracking Server
+  # --------------------------------------------------------------------------
+  mlflow:
+    image: python:3.11-slim
+    container_name: cipher-mlflow
+    hostname: mlflow
+    ports:
+      - "5000:5000"
+    entrypoint: >
+      /bin/sh -c "
+        pip install --quiet mlflow==2.10.0 &&
+        mlflow server
+          --host 0.0.0.0
+          --port 5000
+          --backend-store-uri /mlruns
+          --default-artifact-root /mlruns
+      "
+    volumes:
+      - mlruns_data:/mlruns
+    healthcheck:
+      test:
+        - "CMD"
+        - "curl"
+        - "-f"
+        - "http://localhost:5000/health"
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+    restart: on-failure
+
+  # --------------------------------------------------------------------------
+  # CIPHER Application (Streamlit Dashboard + Backend)
+  # --------------------------------------------------------------------------
   cipher-app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: cipher-app
+    hostname: cipher-app
+    ports:
+      - "8501:8501"
+    environment:
+      # Override config.yaml values at runtime via environment variables
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      CIPHER_ENV: production
+      LOG_LEVEL: INFO
     depends_on:
       kafka:
         condition: service_healthy
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      mlflow:
+        condition: service_healthy
+    volumes:
+      # Bind mounts — host directories are live-synced into the container
+      # Allows updating config/data without rebuilding the image
+      - ./config:/app/config:ro          # read-only — code should not write config
+      - ./data:/app/data:ro              # read-only raw data
+      - ./models:/app/models             # read-write — trainer writes here
+      - ./plots:/app/plots               # read-write — explainer writes here
+      - ./logs:/app/logs                 # read-write — logger writes here
+      - ./reports:/app/reports           # read-write — report generator writes here
+      - feedback_data:/app/data/feedback # named volume for SQLite feedback DB
+    healthcheck:
+      test:
+        - "CMD"
+        - "curl"
+        - "-f"
+        - "http://localhost:8501/_stcore/health"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: on-failure
 
+# ============================================================
+# Named Volumes
+# ============================================================
 volumes:
   kafka_data:
+    driver: local
+  mlruns_data:
+    driver: local
+  feedback_data:
+    driver: local
