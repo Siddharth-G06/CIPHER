@@ -66,6 +66,7 @@ services:
 
     volumes:
       - kafka_data:/var/kafka-logs
+    user: root
     healthcheck:
       test:
         - "CMD"
@@ -88,23 +89,22 @@ services:
     hostname: mlflow
     ports:
       - "5000:5000"
-    entrypoint: >
-      /bin/sh -c "
-        pip install --quiet mlflow==2.10.0 &&
-        mlflow server
-          --host 0.0.0.0
-          --port 5000
-          --backend-store-uri /mlruns
-          --default-artifact-root /mlruns
-      "
+    environment:
+      MLFLOW_ALLOW_FILE_STORE: "true"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        pip install --quiet mlflow==3.14.0 &&
+        mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlruns/mlflow.db --default-artifact-root /mlruns --serve-artifacts --allowed-hosts "*"
     volumes:
       - mlruns_data:/mlruns
     healthcheck:
       test:
         - "CMD"
-        - "curl"
-        - "-f"
-        - "http://localhost:5000/health"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:5000/')"
       interval: 15s
       timeout: 10s
       retries: 10
@@ -124,10 +124,11 @@ services:
       - "8501:8501"
     environment:
       # Override config.yaml values at runtime via environment variables
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       MLFLOW_TRACKING_URI: http://mlflow:5000
       CIPHER_ENV: production
       LOG_LEVEL: INFO
+      MLFLOW_ALLOW_FILE_STORE: "true"
     depends_on:
       kafka:
         condition: service_healthy
@@ -137,12 +138,14 @@ services:
       # Bind mounts — host directories are live-synced into the container
       # Allows updating config/data without rebuilding the image
       - ./config:/app/config:ro          # read-only — code should not write config
-      - ./data:/app/data:ro              # read-only raw data
+      - ./data:/app/data                 # read-write so SQLite can write feedback.db
       - ./models:/app/models             # read-write — trainer writes here
       - ./plots:/app/plots               # read-write — explainer writes here
       - ./logs:/app/logs                 # read-write — logger writes here
       - ./reports:/app/reports           # read-write — report generator writes here
-      - feedback_data:/app/data/feedback # named volume for SQLite feedback DB
+      - ./src:/app/src                   # live code sync — no rebuild needed
+      - ./app.py:/app/app.py             # live code sync — no rebuild needed
+
     healthcheck:
       test:
         - "CMD"
@@ -163,5 +166,4 @@ volumes:
     driver: local
   mlruns_data:
     driver: local
-  feedback_data:
-    driver: local
+

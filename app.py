@@ -30,11 +30,15 @@ Run
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+# Bypass MLflow 2.10+ file store deprecation exception
+os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
 
 import pandas as pd
 import plotly.express as px
@@ -176,16 +180,13 @@ def _build_retrain_pipeline() -> RetrainingPipeline:
     return RetrainingPipeline()
 
 
-@st.cache_resource(show_spinner="Loading drift detector…")
+@st.cache_resource(show_spinner="Wiring drift detector from consumer…")
 def _build_drift_detector() -> DriftDetector:
-    dd = DriftDetector()
-    state_path = _CFG.get("drift", {}).get("detector_state_path", "models/drift_detector_state.pkl")
-    if Path(state_path).exists():
-        try:
-            dd.load_state(state_path)
-        except Exception as exc:
-            _logger.warning("Could not load drift state: %s", exc)
-    return dd
+    """Return the consumer's live drift detector (shared instance)."""
+    # We must build the consumer first, then grab its drift_detector.
+    # _build_consumer is already cached, so this is safe to call.
+    consumer = _build_consumer()
+    return consumer.get_drift_detector()
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +281,12 @@ def _queue_to_df(queue) -> pd.DataFrame:
             "drift_active":   getattr(item, "drift_active", False),
             "review_status":  "Pending",
         })
+    if not rows:
+        return pd.DataFrame(columns=[
+            "transaction_id", "risk_tier", "ensemble_score",
+            "lgbm_score", "iso_score", "flagged_at",
+            "drift_active", "review_status"
+        ])
     return pd.DataFrame(rows)
 
 
@@ -350,11 +357,11 @@ with st.sidebar:
     c1, c2 = st.columns(2)
     if c1.button("▶ Start", disabled=st.session_state["producer_running"] or not _has_csv):
         def _stream():
-            _producer.stream_from_csv(_csv_path, delay_ms=delay_ms)
+            _producer.stream_from_pickle("data/processed/train_featured.pkl", delay_ms=delay_ms)
         _pt = threading.Thread(target=_stream, daemon=True, name="cipher-producer")
         _pt.start()
         st.session_state["producer_running"] = True
-        st.success("Stream started!")
+        st.success("Stream started! Loading dataset into memory (this takes ~45 seconds). Please wait...")
     if c2.button("⏹ Stop", disabled=not st.session_state["producer_running"]):
         st.session_state["producer_running"] = False
         st.info("Stream will stop after current message.")
@@ -903,14 +910,24 @@ with tab4:
                         title=f"Drift Simulation: {sim_drift_type} @ {sim_inj_point:.0%}",
                         xaxis_title=amt_col, yaxis_title="Count",
                     )
-                    st.plotly_chart(fig_sim, use_container_width=True)
-                    st.success(
-                        f"✅ Simulation complete | pre={n_pre} rows, post={n_post} rows"
-                    )
+                    # Save to session state so it persists across auto-reruns
+                    st.session_state["sim_fig"] = fig_sim
+                    st.session_state["sim_msg"] = f"✅ Simulation complete | pre={n_pre} rows, post={n_post} rows | drift_type={sim_drift_type}"
                 except Exception as sim_err:
+                    st.session_state["sim_fig"] = None
+                    st.session_state["sim_msg"] = None
                     st.error(f"Simulation failed: {sim_err}")
         else:
             st.warning(f"CSV not found at `{csv_path}`. Cannot run simulation.")
+
+    # Always render the last simulation result if it exists (persists across reruns)
+    if st.session_state.get("sim_fig") is not None:
+        st.plotly_chart(st.session_state["sim_fig"], use_container_width=True)
+        st.success(st.session_state.get("sim_msg", ""))
+        if st.button("🗑️ Clear Simulation"):
+            st.session_state.pop("sim_fig", None)
+            st.session_state.pop("sim_msg", None)
+            st.rerun()
 
 
 # ===========================================================================

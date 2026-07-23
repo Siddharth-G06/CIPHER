@@ -9,10 +9,12 @@ and handles publishing out-of-band events (like drift alerts and flags).
 from __future__ import annotations
 
 import json
+import pickle
 import time
 from typing import Any
 from datetime import datetime, timezone
 
+import numpy as np
 import pandas as pd
 from confluent_kafka import Producer
 from confluent_kafka.admin import AdminClient, NewTopic
@@ -118,10 +120,10 @@ class TransactionProducer:
         
         # Build Pydantic model for validation
         tx_msg = TransactionMessage(
-            transaction_id=str(transaction.get("TransactionID", transaction.get("transaction_id", "UNKNOWN"))),
-            card1=int(transaction.get("card1", 0)),
-            timestamp=transaction.get("TransactionDT", datetime.now(timezone.utc)),
-            amount=float(transaction.get("TransactionAmt", transaction.get("amount", 0.0))),
+            transaction_id=str(transaction.get("TransactionID") or transaction.get("transaction_id") or "UNKNOWN"),
+            card1=int(transaction.get("card1") or 0),
+            timestamp=transaction.get("TransactionDT") or datetime.now(timezone.utc),
+            amount=float(transaction.get("TransactionAmt") or transaction.get("amount") or 0.0),
             features=transaction
         )
         
@@ -191,8 +193,8 @@ class TransactionProducer:
             start_time = time.time()
             
             for _, row in df.iterrows():
-                # Convert row to dict, handling NaNs
-                row_dict = row.where(pd.notna(row), None).to_dict()
+                # Convert row to dict, replacing NaNs with None
+                row_dict = {k: (None if pd.isna(v) else v) for k, v in row.items()}
                 
                 # Assume TransactionDT is seconds from some epoch if it's numeric
                 dt = row_dict.get("TransactionDT")
@@ -212,8 +214,87 @@ class TransactionProducer:
         except KeyboardInterrupt:
             _logger.info("Streaming interrupted by user.")
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             _logger.error("Streaming failed: %s", e)
             
+        self.close()
+
+    def stream_from_pickle(
+        self,
+        pickle_path: str = "data/processed/train_featured.pkl",
+        delay_ms: int = 100,
+        include_labels: bool = True,
+    ) -> None:
+        """Stream pre-processed rows from train_featured.pkl.
+
+        This is the preferred streaming method because the model was trained
+        on positional numpy arrays whose feature names are Column_0..Column_N.
+        Sending rows from the pickle ensures the consumer sees features in
+        exactly the right positional order with no column-name mismatch.
+
+        Args:
+            pickle_path: Path to the 5-tuple pickle produced by prepare_data.py.
+            delay_ms: Inter-message delay in milliseconds.
+            include_labels: If True, include 'isFraud' in the features dict
+                so the consumer can use it as ground-truth for drift tracking.
+        """
+        _logger.info("Starting stream from pickle %s with delay %dms", pickle_path, delay_ms)
+        try:
+            with open(pickle_path, "rb") as fh:
+                payload = pickle.load(fh)
+
+            if isinstance(payload, dict):
+                X = np.asarray(payload["X_train"])
+                y = np.asarray(payload["y_train"])
+                feature_names = list(payload["feature_names"])
+            else:
+                X, X_test, y, y_test, feature_names = payload
+                X = np.asarray(X)
+                y = np.asarray(y)
+
+            _logger.info(
+                "Loaded %d rows, %d features from pickle | fraud rate=%.2f%%",
+                len(X), X.shape[1], y.mean() * 100,
+            )
+
+            log_every = int(self._cfg["stream"].get("log_every_n", 1000))
+            start_time = time.time()
+
+            for i, (row, label) in enumerate(zip(X, y)):
+                # Build named dict: Column_0 .. Column_N  (matches model feature names)
+                row_dict: dict[str, Any] = {
+                    f"Column_{j}": float(v) for j, v in enumerate(row)
+                }
+                if include_labels:
+                    row_dict["isFraud"] = int(label)
+
+                # Also embed human-readable feature names so the dashboard can display them
+                for fname, val in zip(feature_names, row):
+                    row_dict.setdefault(fname, float(val))
+
+                tx_id = f"pkl-{i:07d}"
+                row_dict["transaction_id"] = tx_id
+                row_dict["TransactionID"] = tx_id
+                row_dict["amount"] = float(row_dict.get("TransactionAmt", row[0]))
+                row_dict["TransactionDT"] = datetime.now(timezone.utc).isoformat()
+
+                self.publish_transaction(row_dict)
+                time.sleep(delay_ms / 1000.0)
+
+                if (i + 1) % log_every == 0:
+                    elapsed = time.time() - start_time
+                    tps = log_every / elapsed if elapsed > 0 else 0
+                    _logger.info("Streamed %d messages | %.2f msg/sec", i + 1, tps)
+                    start_time = time.time()
+
+        except KeyboardInterrupt:
+            _logger.info("Pickle streaming interrupted by user.")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            _logger.error("Pickle streaming failed: %s", e)
+
         self.close()
 
     def get_stats(self) -> dict:

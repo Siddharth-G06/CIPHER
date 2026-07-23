@@ -1,51 +1,52 @@
-# Data — never commit raw CSVs (too large, potentially sensitive)
+# ─── Data ─────────────────────────────────────────────────────────────────────
+# Never commit raw CSVs (too large, potentially sensitive)
 data/
 *.csv
 
-# Trained models — large binary files
+# ─── Models ───────────────────────────────────────────────────────────────────
+# Trained model binaries — large files, regeneratable via make train
 models/
 *.pkl
 
-# MLflow artifacts — regeneratable
+# ─── MLflow ───────────────────────────────────────────────────────────────────
+# Experiment tracking artifacts — regeneratable
 mlruns/
 
-# Plots — regeneratable
+# ─── Generated Outputs ────────────────────────────────────────────────────────
+# SHAP plots and other visualisations
 plots/
 
-# Python cache
-__pycache__/
-*.pyc
-.pytest_cache/
-
-# Environment
-.env
-venv/
-*.egg-info/
-
-# Logs
-logs/
-*.log
-
-# Jupyter checkpoints
-.ipynb_checkpoints/
-
-# Generated PDF reports
+# Generated PDF investigation reports
 reports/
 
-# Kafka data volume (if running outside Docker)
+# ─── Python Cache ─────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# ─── Environment ──────────────────────────────────────────────────────────────
+.env
+*.env
+venv/
+.venv/
+*.egg-info/
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.kafka.log
+
+# ─── Jupyter ──────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── Kafka ────────────────────────────────────────────────────────────────────
+# Data volumes if running Kafka outside Docker
 kafka-data/
 kafka_data/
 
-# confluent kafka logs
-*.kafka.log
-
-# SQLite feedback database (runtime artifact)
-data/feedback.db
-
-# Model update signal file
-models/model_updated.json
-
-# Processed data pickles (large files)
-data/processed/
-# Streamlit cache
+# ─── Streamlit ────────────────────────────────────────────────────────────────
 .streamlit/
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+.dockerignore

@@ -77,13 +77,21 @@ def get_model_versions(
             run_metrics: dict = {}
             try:
                 run_data = client.get_run(mv.run_id).data
+                m = run_data.metrics
+
+                def _pick(m: dict, *keys: str, default=None):
+                    for k in keys:
+                        if k in m:
+                            return m[k]
+                    return default
+
                 run_metrics = {
-                    "auc_pr": run_data.metrics.get("challenger_auc_pr", None),
-                    "f1": run_data.metrics.get("challenger_f1", None),
-                    "precision": run_data.metrics.get("challenger_precision", None),
-                    "recall": run_data.metrics.get("challenger_recall", None),
+                    "auc_pr":    _pick(m, "challenger_auc_pr",    "ensemble.auc_pr"),
+                    "f1":        _pick(m, "challenger_f1",        "ensemble.f1"),
+                    "precision": _pick(m, "challenger_precision", "ensemble.precision"),
+                    "recall":    _pick(m, "challenger_recall",    "ensemble.recall"),
                     "trigger_reason": run_data.tags.get("trigger_reason", ""),
-                    "outcome": run_data.tags.get("outcome", ""),
+                    "outcome":        run_data.tags.get("outcome", ""),
                 }
             except Exception:  # noqa: BLE001
                 pass
@@ -182,7 +190,7 @@ def get_champion_metrics(
         mlflow.set_tracking_uri(tracking_uri)
         client = MlflowClient()
 
-        # Try alias first.
+        # Try alias first, then Production stage.
         try:
             mv = client.get_model_version_by_alias(registry_name, "champion")
         except Exception:  # noqa: BLE001
@@ -190,18 +198,33 @@ def get_champion_metrics(
                 registry_name, stages=["Production"]
             )
             if not prod_versions:
-                return {}
-            mv = prod_versions[0]
+                # fall back to any version
+                staging_versions = client.get_latest_versions(
+                    registry_name, stages=["Staging"]
+                )
+                if not staging_versions:
+                    return {}
+                mv = staging_versions[0]
+            else:
+                mv = prod_versions[0]
 
         run_data = client.get_run(mv.run_id).data
         m = run_data.metrics
+
+        def _pick(m: dict, *keys: str, default: float = 0.0) -> float:
+            """Return first key found in m, fallback to default."""
+            for k in keys:
+                if k in m:
+                    return m[k]
+            return default
+
         return {
             "version": mv.version,
-            "auc_pr": m.get("challenger_auc_pr", m.get("auc_pr", 0.0)),
-            "f1": m.get("challenger_f1", m.get("f1", 0.0)),
-            "precision": m.get("challenger_precision", m.get("precision", 0.0)),
-            "recall": m.get("challenger_recall", m.get("recall", 0.0)),
-            "auc_roc": m.get("challenger_auc_roc", m.get("auc_roc", 0.0)),
+            "auc_pr":    _pick(m, "challenger_auc_pr",    "ensemble.auc_pr",    "auc_pr"),
+            "f1":        _pick(m, "challenger_f1",        "ensemble.f1",        "f1"),
+            "precision": _pick(m, "challenger_precision", "ensemble.precision", "precision"),
+            "recall":    _pick(m, "challenger_recall",    "ensemble.recall",    "recall"),
+            "auc_roc":   _pick(m, "challenger_auc_roc",   "ensemble.auc_roc",  "auc_roc"),
         }
     except Exception as exc:  # noqa: BLE001
         _logger.warning("get_champion_metrics — MLflow error: %s", exc)
@@ -227,7 +250,7 @@ def get_challenger_metrics(
         mlflow.set_tracking_uri(tracking_uri)
         client = MlflowClient()
 
-        # Try alias first.
+        # Try alias first, then Staging stage.
         try:
             mv = client.get_model_version_by_alias(registry_name, "challenger")
         except Exception:  # noqa: BLE001
@@ -240,13 +263,20 @@ def get_challenger_metrics(
 
         run_data = client.get_run(mv.run_id).data
         m = run_data.metrics
+
+        def _pick(m: dict, *keys: str, default: float = 0.0) -> float:
+            for k in keys:
+                if k in m:
+                    return m[k]
+            return default
+
         return {
             "version": mv.version,
-            "auc_pr": m.get("challenger_auc_pr", m.get("auc_pr", 0.0)),
-            "f1": m.get("challenger_f1", m.get("f1", 0.0)),
-            "precision": m.get("challenger_precision", m.get("precision", 0.0)),
-            "recall": m.get("challenger_recall", m.get("recall", 0.0)),
-            "auc_roc": m.get("challenger_auc_roc", m.get("auc_roc", 0.0)),
+            "auc_pr":    _pick(m, "challenger_auc_pr",    "ensemble.auc_pr",    "auc_pr"),
+            "f1":        _pick(m, "challenger_f1",        "ensemble.f1",        "f1"),
+            "precision": _pick(m, "challenger_precision", "ensemble.precision", "precision"),
+            "recall":    _pick(m, "challenger_recall",    "ensemble.recall",    "recall"),
+            "auc_roc":   _pick(m, "challenger_auc_roc",   "ensemble.auc_roc",  "auc_roc"),
         }
     except Exception as exc:  # noqa: BLE001
         _logger.warning("get_challenger_metrics — MLflow error: %s", exc)

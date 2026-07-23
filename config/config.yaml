@@ -60,7 +60,7 @@ model:
 mlflow:
   experiment_name: cipher-fraud-detection
   tracking_uri: ./mlruns
-  model_registry_name: CIPHERFraudDetector
+  model_registry_name: CIPHER_Ensemble
 
 # ---------------------------------------------------------------------------
 # Drift Detection Layer

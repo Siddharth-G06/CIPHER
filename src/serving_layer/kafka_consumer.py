@@ -102,6 +102,14 @@ class FraudDetectionConsumer:
         self._messages_failed = 0
         self._total_processing_ms = 0.0
 
+    def get_drift_detector(self) -> DriftDetector:
+        """Return this consumer's live drift detector instance."""
+        return self.drift_detector
+
+    def get_review_queue(self) -> collections.deque:
+        """Return the live review queue."""
+        return self.review_queue
+
     def subscribe(self) -> None:
         """Subscribe to the raw transactions topic."""
         topic = self._cfg["topics"]["raw"]
@@ -143,20 +151,18 @@ class FraudDetectionConsumer:
         try:
             features = tx_msg.features
             
-            # 3. Build feature vector
-            # We use all numeric features available in the dictionary, ignoring non-numeric
+            # 3. Build feature vector aligned to model's expected columns in one shot
+            # (avoids DataFrame fragmentation from inserting columns one-by-one)
             numeric_features = {k: v for k, v in features.items() if isinstance(v, (int, float))}
-            # Create a single-row DataFrame to match model inputs
-            X_row_df = pd.DataFrame([numeric_features])
-            
-            # Align with LightGBM expected columns if model is trained
+
             if self.ensemble.lgbm_ is not None and self.ensemble.lgbm_.model_ is not None:
                 expected_cols = self.ensemble.lgbm_.model_.feature_name_
-                for col in expected_cols:
-                    if col not in X_row_df.columns:
-                        X_row_df[col] = 0.0
-                X_row_df = X_row_df[expected_cols]
-                
+                # Build aligned dict: use incoming value if present, else sentinel -999
+                aligned = {col: numeric_features.get(col, -999.0) for col in expected_cols}
+                X_row_df = pd.DataFrame([aligned], columns=expected_cols)
+            else:
+                X_row_df = pd.DataFrame([numeric_features])
+
             X_row_np = X_row_df.values
             
             # 4. Predict
@@ -172,8 +178,9 @@ class FraudDetectionConsumer:
             is_fraud = ensemble_score >= threshold
             y_pred = int(is_fraud)
 
-            # 5. Drift detector update (using y_pred for both true and pred)
-            drift_detected = self.drift_detector.update(y_pred, y_pred, X_row_df)
+            # 5. Drift detector update — use isFraud label if producer injected it
+            y_true = int(features.get("isFraud", y_pred))
+            drift_detected = self.drift_detector.update(y_true, y_pred, X_row_df)
             drift_info = None
             if drift_detected and self.drift_detector._drift_history:
                 drift_info = self.drift_detector._drift_history[-1]
@@ -181,21 +188,6 @@ class FraudDetectionConsumer:
             # 6. If flagged
             if is_fraud:
                 self._messages_flagged += 1
-                
-                # Trigger explanation asynchronously
-                if self.explainer is not None:
-                    self.explainer.explain_async(tx_msg.transaction_id, X_row_df.iloc[0])
-                
-                # To build FlaggedTransaction, we need an ExplanationResult. Since explain_async is async,
-                # we don't have the result immediately. But FlaggedTransaction requires it.
-                # In a real system, the explainer might publish a separate message, or we block briefly,
-                # or we pass a placeholder. Let's pass a placeholder explanation.
-                # If we use explain() synchronously, it would block the consumer.
-                # For this implementation, we will use a dummy/None explanation initially if we don't block.
-                # But to satisfy the dataclass, let's call explain() synchronously for the FlaggedTransaction.
-                # Wait, the spec says "trigger explain_async and generate_report_async".
-                # If we do explain_async, we don't have `explanation` right now. 
-                # I'll pass None for explanation, as we used `Any` for typing.
                 
                 flagged_tx = FlaggedTransaction(
                     transaction_id=tx_msg.transaction_id,
@@ -211,14 +203,17 @@ class FraudDetectionConsumer:
                     model_version="v1.0"
                 )
                 
+                # Trigger explanation asynchronously
+                if self.explainer is not None:
+                    # Callback for explainer to trigger report generator when done
+                    def on_explain_done(tx_id, result):
+                        flagged_tx.explanation = result
+                        self.report_generator.generate_report_async(flagged_tx, lambda path: _logger.info("Report done: %s", path))
+                        
+                    self.explainer.explain_async(tx_msg.transaction_id, X_row_df.iloc[0], callback=on_explain_done)
+                
                 self.producer.publish_flagged(flagged_tx)
                 
-                # Callback for explainer to trigger report generator when done
-                def on_explain_done(tx_id, result):
-                    flagged_tx.explanation = result
-                    self.report_generator.generate_report_async(flagged_tx, lambda path: _logger.info("Report done: %s", path))
-                    
-                # Actually, the explainer might not have callbacks natively, but we can do our own async wrapper
                 # Or simply pass the flagged_tx to review_queue and let it be updated.
                 self.review_queue.appendleft(flagged_tx)
                 
