@@ -92,8 +92,12 @@ class RetrainingPipeline:
         self._mlflow_cfg: dict = self._cfg["mlflow"]
         self._config_path = config_path
 
-        # Set MLflow tracking URI before any MLflow API calls.
-        mlflow.set_tracking_uri(self._mlflow_cfg["tracking_uri"])
+        # Set MLflow tracking URI — prefer env var (set by docker-compose) over config.
+        import os
+        tracking_uri = os.environ.get(
+            "MLFLOW_TRACKING_URI", self._mlflow_cfg["tracking_uri"]
+        )
+        mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_experiment(self._mlflow_cfg["experiment_name"])
 
         self._store = FeedbackStore(config_path=config_path)
@@ -678,26 +682,18 @@ class RetrainingPipeline:
             mlflow.log_param("trigger_reason", trigger_reason)
             mlflow.log_param("feedback_count", len(feedback_records))
 
-            # Register model.
+            # Register model — two-step for MLflow 2.10 compatibility.
             mlflow.sklearn.log_model(
                 sk_model=challenger,
                 artifact_path="model",
-                registered_model_name=registry_name,
             )
 
-        # Retrieve the newly registered version.
-        versions = self._client.search_model_versions(
-            f"name='{registry_name}'", order_by=["version_number DESC"]
+        # Register explicitly outside the run context.
+        mv = mlflow.register_model(
+            model_uri=f"runs:/{run_id}/model",
+            name=registry_name,
         )
-        if not versions:
-            _logger.error(
-                "RetrainingPipeline._promote_challenger — could not find "
-                "newly registered version. Aborting promotion."
-            )
-            return run_id
-
-        new_version = versions[0].version
-        new_version_str = str(new_version)
+        new_version_str = str(mv.version)
 
         # Archive existing Production models (MLflow 2.x stages API).
         try:

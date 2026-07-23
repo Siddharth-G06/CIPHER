@@ -291,7 +291,9 @@ def train_and_log(
     # ------------------------------------------------------------------
     # 3–9. MLflow run — wraps the full eval + artifact + registry flow
     # ------------------------------------------------------------------
-    mlflow.set_tracking_uri(mlflow_cfg["tracking_uri"])
+    import os
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", mlflow_cfg["tracking_uri"])
+    mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(mlflow_cfg["experiment_name"])
 
     _logger.info(
@@ -322,6 +324,14 @@ def train_and_log(
             for metric_name, metric_value in metrics_dict.items():
                 metrics_to_log[f"{model_key}.{metric_name}"] = metric_value
 
+        # Add challenger_* aliases so the dashboard mlflow_client can find them
+        ens = summary["ensemble_metrics"]
+        metrics_to_log["challenger_auc_pr"]    = ens.get("auc_pr", 0.0)
+        metrics_to_log["challenger_f1"]        = ens.get("f1", 0.0)
+        metrics_to_log["challenger_precision"] = ens.get("precision", 0.0)
+        metrics_to_log["challenger_recall"]    = ens.get("recall", 0.0)
+        metrics_to_log["challenger_auc_roc"]   = ens.get("auc_roc", 0.0)
+
         mlflow.log_metrics(metrics_to_log)
         _logger.info("MLflow — logged %d metrics", len(metrics_to_log))
 
@@ -333,52 +343,71 @@ def train_and_log(
             fi_path = _log_feature_importance(
                 ensemble, feature_names, tmp_dir, top_n=20
             )
-            mlflow.log_artifact(cm_path, artifact_path="plots")
-            mlflow.log_artifact(fi_path, artifact_path="plots")
-            _logger.info("MLflow — confusion matrix and feature importance plots logged")
+            try:
+                mlflow.log_artifact(cm_path, artifact_path="plots")
+                mlflow.log_artifact(fi_path, artifact_path="plots")
+                _logger.info("MLflow — confusion matrix and feature importance plots logged")
+            except Exception as art_exc:
+                _logger.warning(
+                    "MLflow — artifact upload skipped (non-fatal): %s", art_exc
+                )
 
-        # ---- 8. Register model ---------------------------------------
+        # ---- 8. Save local copy first (always succeeds) ---------------
+        local_path: str = artifact_cfg["local_model_path"]
+        ensemble.save(local_path)
+        _logger.info("Local ensemble copy saved to '%s'", local_path)
+
+        # ---- 9. Register model in MLflow (non-fatal) ------------------
         registry_name: str = mlflow_cfg["model_registry_name"]
         model_uri = f"runs:/{run_id}/model"
 
         _logger.info(
             "Logging ensemble to MLflow model store (uri='%s')", model_uri
         )
-        # Log the whole ensemble object using sklearn flavour.
-        mlflow.sklearn.log_model(
-            sk_model=ensemble,
-            artifact_path="model",
-            registered_model_name=registry_name,
-        )
-        _logger.info(
-            "MLflow — model registered as '%s' → Staging", registry_name
-        )
+        try:
+            # Step 1: Log the model artifact (without auto-register to avoid API issues)
+            mlflow.sklearn.log_model(
+                sk_model=ensemble,
+                artifact_path="model",
+            )
+            _logger.info("MLflow — model artifact logged")
 
-        # Transition the latest version to Staging.
-        client = mlflow.tracking.MlflowClient()
-        latest_versions = client.get_latest_versions(
-            registry_name, stages=["None"]
-        )
-        if latest_versions:
-            latest_version = latest_versions[-1].version
+            # Step 2: Register explicitly via register_model (more reliable)
+            client = mlflow.tracking.MlflowClient()
+            mv = mlflow.register_model(
+                model_uri=model_uri,
+                name=registry_name,
+            )
+            registered_version = mv.version
+            _logger.info(
+                "MLflow — '%s' v%s registered", registry_name, registered_version
+            )
+
+            # Step 3: Archive all existing Production versions, promote this one
+            prod_versions = client.get_latest_versions(registry_name, stages=["Production"])
+            for old_v in prod_versions:
+                client.transition_model_version_stage(
+                    name=registry_name,
+                    version=old_v.version,
+                    stage="Archived",
+                    archive_existing_versions=False,
+                )
             client.transition_model_version_stage(
                 name=registry_name,
-                version=latest_version,
-                stage="Staging",
-                archive_existing_versions=False,
+                version=registered_version,
+                stage="Production",
+                archive_existing_versions=True,
             )
             _logger.info(
-                "MLflow — '%s' v%s transitioned to Staging",
+                "MLflow — '%s' v%s promoted to Production",
                 registry_name,
-                latest_version,
+                registered_version,
+            )
+        except Exception as reg_exc:
+            _logger.warning(
+                "MLflow — model registration skipped (non-fatal): %s", reg_exc
             )
 
-        # ---- 9. Local joblib copy ------------------------------------
-        local_path: str = artifact_cfg["local_model_path"]
-        ensemble.save(local_path)
-        _logger.info(
-            "Local ensemble copy saved to '%s'", local_path
-        )
 
         # ---- 10. Save LightGBM sub-model + SHAP global report --------
         # Save the LightGBM sub-model separately so SHAPExplainer can
