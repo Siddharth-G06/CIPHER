@@ -213,7 +213,7 @@ cipher/
 
 ## Author
 
-**Siddharth** — B.Tech + M.Tech (Dual Degree), SNU + IIT Madras
+**Siddharth** — B.Tech AI and DS, SNUC 
 [GitHub](https://github.com/Siddharth-G06)
 
 ---
