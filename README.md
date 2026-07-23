@@ -218,4 +218,4 @@ cipher/
 
 ---
 
-*Built end-to-end as a production-grade ML engineering portfolio project. June – July 2025.*
+
