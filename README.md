@@ -210,21 +210,6 @@ cipher/
 
 ---
 
-## Status
-
-| Component | Status |
-|-----------|--------|
-| Data preprocessing + graph features | ✅ Complete |
-| Ensemble model + MLflow tracking | ✅ Complete |
-| Drift detection (ADWIN + PSI) | ✅ Complete |
-| SHAP explainability + PDF reports | ✅ Complete |
-| Kafka streaming (producer + consumer) | ✅ Complete |
-| Human feedback + retraining pipeline | ✅ Complete |
-| Streamlit dashboard (5 tabs) | ✅ Complete |
-| Docker Compose + Makefile | ✅ Complete |
-| Full end-to-end integration | 🔄 In progress |
-
----
 
 ## Author
 
